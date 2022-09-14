@@ -4,7 +4,6 @@ import torch.optim as optim
 import numpy as np
 from copy import deepcopy
 import auxiliary
-
 class MyData(torch.utils.data.Dataset):
     def __init__(self, data_root, data_label):
         self.data = data_root
@@ -15,8 +14,6 @@ class MyData(torch.utils.data.Dataset):
         return data, labels
     def __len__(self):
         return len(self.data)
-
-
 class My_Method():
     def __init__(self, data_root, data_label, batch_size,susp,direction,decay,wts):
         self.data = data_root
@@ -29,8 +26,6 @@ class My_Method():
         self.test_data = torch.utils.data.DataLoader(testset, batch_size=32, shuffle=False)
         self.criterion = nn.CrossEntropyLoss()
         self.wts = wts
-
-
     def train_server_model(self,net,device,lr):
         batch_idx = 0
         batch_size = self.b_size
@@ -59,14 +54,12 @@ class My_Method():
         torch.cuda.empty_cache()
         param_list = torch.stack([(torch.cat([xx.reshape((-1)) for xx in x], dim=0)).squeeze(0) for x in grad_list])
         return param_list[0]
-
     def my_method(self,device, byz, lr, grad_list, net, adapt_rule, nbyz):
         param_list = torch.stack([(torch.cat([xx.reshape((-1)) for xx in x], dim=0)).squeeze(0) for x in grad_list])
         cos = nn.CosineSimilarity(dim=-1, eps=1e-6)
         server_params = self.train_server_model(net,device,lr)
         server_norm = torch.norm(server_params)
         param_list = (param_list[1:])
-
         if lr == 0:
             global_params = torch.zeros(len(param_list[0])).to(device)
             with torch.no_grad():
@@ -77,7 +70,6 @@ class My_Method():
                         idx += param[1].nelement()
             del global_params
             return net
-
         if 'adaptive' in str(byz):
             param_list = byz(device, lr, param_list, nbyz, server_params,1,10)
             if adapt_rule == 'tesseract':
@@ -103,10 +95,7 @@ class My_Method():
             if adapt_rule == 'foolsgold':
                 rule = auxiliary.foolsgold
                 return rule(device, param_list, net)
-
         else:param_list = byz(device, lr, param_list, nbyz)
-
-
         for i in range(len(param_list)):
             param_list[i] = (server_norm / torch.norm(param_list[i])) * param_list[i]
         num_workers = len(param_list)
@@ -116,24 +105,20 @@ class My_Method():
                 cs[i, j] = cos(param_list[i], param_list[j])
                 cs[j, i] = cs[i, j]
         v = torch.zeros(num_workers).to(device)
-
         for i in range(num_workers):
             v[i] = torch.max(cs[i])
         alpha = torch.zeros(num_workers).to(device)
         for i in range(num_workers):
             alpha[i] = 1 - torch.max(cs[i])
         alpha = (alpha-torch.min(alpha))/(torch.max(alpha)-torch.min(alpha))
-
         ts = torch.zeros(num_workers).to(device)
         for i in range(len(param_list)):
             ts[i] = cos(server_params, param_list[i])
         ts = (ts-torch.min(ts))/(torch.max(ts)-torch.min(ts))
-
         factor1 = ts+alpha
         factor2 = ts*alpha
         weights = 2*factor2/factor1
         weights[factor1 == 0] = 0
-
         weights = weights / torch.sum(weights)
         # print(weights)
         global_params = torch.matmul(torch.transpose(param_list, 0, 1), weights.reshape(-1, 1)).to(device)
